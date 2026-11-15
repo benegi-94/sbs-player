@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>SBS Player</title>
+<meta name="description" content="VR-Videos (180°/360°, Side-by-Side) auf dem Handy ansehen – per Wischen umsehen. Videos bleiben auf dem Gerät.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="SBS Player">
+<style>
+  :root {
+    --bg: #000;
+    --fg: #f2f2f2;
+    --muted: #a8a8a8;
+    --panel: rgba(18,18,20,.78);
+    --accent: #4da3ff;
+    --btn: rgba(255,255,255,.12);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 15px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden;
+    overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  video { display: none; }
+
+  .bar { position: fixed; left: 0; right: 0; background: var(--panel); backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px); display: flex; align-items: center; gap: 8px;
+    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+    transition: opacity .25s, transform .25s; z-index: 2; }
+  #top { top: 0; padding-top: max(8px, env(safe-area-inset-top)); flex-wrap: wrap; }
+  #bottom { bottom: 0; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  body.hide-ui .bar { opacity: 0; pointer-events: none; }
+  body.hide-ui #top { transform: translateY(-100%); }
+  body.hide-ui #bottom { transform: translateY(100%); }
+
+  button, select, .filebtn { appearance: none; border: 0; border-radius: 10px; background: var(--btn);
+    color: var(--fg); font: inherit; min-height: 40px; padding: 0 12px; cursor: pointer; }
+  select { padding-right: 8px; }
+  select option { background: #222; color: #fff; }
+  button:active, .filebtn:active { background: rgba(255,255,255,.25); }
+  .filebtn { display: inline-flex; align-items: center; background: var(--accent); color: #fff; font-weight: 600; }
+  .icon { min-width: 44px; padding: 0; font-size: 18px; }
+  .icon.skip { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #name { flex: 1 1 120px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 13px; }
+  #seek { flex: 1; min-width: 60px; accent-color: var(--accent); height: 28px; }
+  .time { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+  #intro { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; padding: 24px; text-align: center; z-index: 1; }
+  #intro h1 { margin: 0; font-size: 22px; }
+  #intro p { margin: 0; color: var(--muted); max-width: 420px; }
+  #intro .filebtn { min-height: 52px; padding: 0 22px; font-size: 17px; }
+  #intro .small { font-size: 13px; }
+  #install { min-height: 44px; }
+  body.has-video #intro { display: none; }
+  #toast { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); background: var(--panel);
+    padding: 10px 16px; border-radius: 12px; font-size: 16px; opacity: 0; transition: opacity .2s;
+    pointer-events: none; z-index: 3; }
+  #toast.show { opacity: 1; }
+  @media (max-width: 520px) { .hide-narrow { display: none; } }
+</style>
+</head>
+<body class="">
+<canvas id="gl"></canvas>
+<video id="video" playsinline webkit-playsinline preload="auto"></video>
+<!-- no accept filter: on Android a video filter opens the gallery picker, which often misses files; without it the full file browser opens -->
+<input id="file" type="file" hidden>
+
+<div id="intro">
+  <h1>SBS Player</h1>
+  <p>VR-Video (Side-by-Side, 180°) auswählen. Danach mit dem Finger wischen zum Umsehen, mit zwei Fingern zoomen, doppelt tippen zum Zurücksetzen.</p>
+  <label class="filebtn" for="file">Video öffnen</label>
+  <button id="install" hidden>App installieren</button>
+  <p class="small">Deine Videos bleiben auf deinem Gerät – es wird nichts hochgeladen.</p>
+</div>
+
+<div id="top" class="bar">
+  <label class="filebtn" for="file">Öffnen</label>
+  <span id="name"></span>
+  <select id="proj" title="Projektion">
+    <option value="0">180°</option>
+    <option value="1">360°</option>
+    <option value="2">Flach</option>
+  </select>
+  <select id="layout" title="Layout">
+    <option value="0">SBS</option>
+    <option value="1">Oben/Unten</option>
+    <option value="2">Mono</option>
+  </select>
+  <button id="fs" class="icon" title="Vollbild">⛶</button>
+</div>
+
+<div id="bottom" class="bar">
+  <button id="back" class="icon skip" title="15 s zurück">−15</button>
+  <button id="play" class="icon" title="Play/Pause">▶</button>
+  <button id="fwd" class="icon skip" title="15 s vor">+15</button>
+  <span id="cur" class="time">0:00</span>
+  <input id="seek" type="range" min="0" max="1000" value="0" step="1">
+  <span id="dur" class="time">0:00</span>
+  <button id="reset" class="icon hide-narrow" title="Ansicht zurücksetzen">⌖</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const canvas = $('gl'), video = $('video'), fileInput = $('file');
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+
+  // ---------- View state ----------
+  const DEG = Math.PI / 180;
+  const view = { yaw: 0, pitch: 0, fov: 80 * DEG, panX: 0, panY: 0 };
+  let proj = +(store.get('sbs.proj') || 0);
+  let layout = +(store.get('sbs.layout') || 0);
+  $('proj').value = proj; $('layout').value = layout;
+
+  function resetView() { view.yaw = 0; view.pitch = 0; view.fov = 80 * DEG; view.panX = 0; view.panY = 0; }
+
+  function clampView() {
+    if (proj === 2) {
+      view.fov = Math.min(Math.max(view.fov, 10 * DEG), 120 * DEG);
+    } else {
+      view.fov = Math.min(Math.max(view.fov, 25 * DEG), 120 * DEG);
+      view.pitch = Math.min(Math.max(view.pitch, -89 * DEG), 89 * DEG);
+      if (proj === 0) {
+        // stop where the hemisphere edge meets the screen edge
+        const aspect = (canvas.clientWidth || 1) / (canvas.clientHeight || 1);
+        const halfH = Math.atan(Math.tan(view.fov / 2) * aspect);
+        const lim = Math.max(0, 90 * DEG - halfH);
+        view.yaw = Math.min(Math.max(view.yaw, -lim), lim);
+      }
+      else view.yaw = ((view.yaw + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+    }
+  }
+
+  // ---------- WebGL ----------
+  const gl = canvas.getContext('webgl', { antialias: false, alpha: false, preserveDrawingBuffer: false });
+  if (!gl) { alert('WebGL wird von diesem Browser nicht unterstützt.'); return; }
+
+  const vs = `attribute vec2 p; varying vec2 ndc; void main(){ ndc = p; gl_Position = vec4(p,0.,1.); }`;
+  const fs = `precision highp float;
+  varying vec2 ndc;
+  uniform sampler2D tex;
+  uniform float yaw, pitch, tanHalf, aspect, eyeAspect;
+  uniform vec2 pan;
+  uniform int proj, layout;
+  const float PI = 3.14159265359;
+  vec2 eyeUV(vec2 uv){
+    if (layout == 0) return vec2(uv.x * 0.5, uv.y);
+    if (layout == 1) return vec2(uv.x, uv.y * 0.5);
+    return uv;
+  }
+  void main(){
+    vec2 uv;
+    if (proj == 2) {
+      float x = ndc.x * aspect * tanHalf + pan.x;
+      float y = ndc.y * tanHalf + pan.y;
+      uv = vec2(x / eyeAspect * 0.5 + 0.5, 0.5 - y * 0.5);
+      if (uv.x < 0. || uv.x > 1. || uv.y < 0. || uv.y > 1.) { gl_FragColor = vec4(0.,0.,0.,1.); return; }
+    } else {
+      vec3 d = normalize(vec3(ndc.x * aspect * tanHalf, ndc.y * tanHalf, -1.0));
+      float cp = cos(pitch), sp = sin(pitch);
+      d = vec3(d.x, d.y * cp + d.z * sp, -d.y * sp + d.z * cp);
+      float cy = cos(yaw), sy = sin(yaw);
+      d = vec3(d.x * cy - d.z * sy, d.y, d.x * sy + d.z * cy);
+      float lon = atan(d.x, -d.z);
+      float lat = asin(clamp(d.y, -1., 1.));
+      if (proj == 0) {
+        if (abs(lon) > PI * 0.5) { gl_FragColor = vec4(0.,0.,0.,1.); return; }
+        uv = vec2(lon / PI + 0.5, 0.5 - lat / PI);
+      } else {
+        uv = vec2(lon / (2. * PI) + 0.5, 0.5 - lat / PI);
+      }
+    }
+    gl_FragColor = texture2D(tex, eyeUV(uv));
+  }`;
+
+  function compile(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'p');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  const U = {};
+  ['yaw','pitch','tanHalf','aspect','eyeAspect','pan','proj','layout','tex'].forEach(n => U[n] = gl.getUniformLocation(prog, n));
+
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
+  gl.uniform1i(U.tex, 0);
+
+  let frameReady = false, needsDraw = true;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; needsDraw = true; }
+  }
+
+  function eyeAspect() {
+    const vw = video.videoWidth || 2, vh = video.videoHeight || 1;
+    if (layout === 0) return (vw / 2) / vh;
+    if (layout === 1) return vw / (vh / 2);
+    return vw / vh;
+  }
+
+  function draw() {
+    resize();
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    if (frameReady && video.readyState >= 2) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+    }
+    gl.uniform1f(U.yaw, view.yaw);
+    gl.uniform1f(U.pitch, view.pitch);
+    gl.uniform1f(U.tanHalf, Math.tan(view.fov / 2));
+    gl.uniform1f(U.aspect, canvas.width / canvas.height);
+    gl.uniform1f(U.eyeAspect, eyeAspect());
+    gl.uniform2f(U.pan, view.panX, view.panY);
+    gl.uniform1i(U.proj, proj);
+    gl.uniform1i(U.layout, layout);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    needsDraw = false;
+  }
+
+  function loop() {
+    if (needsDraw || (!video.paused && !video.ended)) draw();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  window.addEventListener('resize', () => { needsDraw = true; });
+
+  // ---------- Touch / mouse ----------
+  const pointers = new Map();
+  let pinchStart = null, moved = false, lastTap = 0, tapTimer = null;
+
+  function dragBy(dx, dy) {
+    const h = canvas.clientHeight || 1;
+    const t = Math.tan(view.fov / 2);
+    if (proj === 2) {
+      view.panX -= dx / h * 2 * t;
+      view.panY += dy / h * 2 * t;
+    } else {
+      // angle per pixel so the image follows the finger
+      const a = 2 * Math.atan(t) / h;
+      view.yaw -= dx * a;
+      view.pitch -= dy * a;
+    }
+    clampView(); needsDraw = true;
+  }
+
+  function dist() {
+    const [a, b] = [...pointers.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
+    if (pointers.size === 1) moved = false;
+    if (pointers.size === 2) { pinchStart = { d: dist(), fov: view.fov }; moved = true; }
+  });
+  canvas.addEventListener('pointermove', e => {
+    const p = pointers.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (Math.hypot(p.x - p.sx, p.y - p.sy) > 8) moved = true;
+    if (pointers.size === 1) dragBy(dx, dy);
+    else if (pointers.size === 2 && pinchStart) {
+      const tStart = Math.tan(pinchStart.fov / 2);
+      view.fov = 2 * Math.atan(tStart * pinchStart.d / Math.max(dist(), 1));
+      clampView(); needsDraw = true;
+    }
+  });
+  function up(e) {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchStart = null;
+    if (pointers.size === 0 && !moved) handleTap();
+  }
+  canvas.addEventListener('pointerup', up);
+  canvas.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); pinchStart = null; });
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    view.fov *= Math.exp(e.deltaY * 0.001); clampView(); needsDraw = true;
+  }, { passive: false });
+
+  function handleTap() {
+    const now = Date.now();
+    if (now - lastTap < 300) {
+      clearTimeout(tapTimer); lastTap = 0;
+      resetView(); needsDraw = true; toast('Ansicht zurückgesetzt');
+      return;
+    }
+    lastTap = now;
+    tapTimer = setTimeout(() => toggleUI(), 300);
+  }
+
+  // ---------- UI ----------
+  let hideTimer = null;
+  function toggleUI(force) {
+    const hide = force !== undefined ? force : !document.body.classList.contains('hide-ui');
+    document.body.classList.toggle('hide-ui', hide);
+    scheduleHide();
+  }
+  function scheduleHide() {
+    clearTimeout(hideTimer);
+    if (!video.paused && !document.body.classList.contains('hide-ui')) {
+      hideTimer = setTimeout(() => document.body.classList.add('hide-ui'), 3500);
+    }
+  }
+  ['top', 'bottom'].forEach(id => $(id).addEventListener('pointerdown', scheduleHide));
+
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 1100);
+  }
+
+  function fmt(s) {
+    if (!isFinite(s)) return '0:00';
+    s = Math.floor(s);
+    const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(sec).padStart(2, '0');
+  }
+
+  let currentKey = null, seeking = false;
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    if (video.src) URL.revokeObjectURL(video.src);
+    frameReady = false;
+    currentKey = 'sbs.pos.' + f.name + '.' + f.size;
+    video.src = URL.createObjectURL(f);
+    $('name').textContent = f.name;
+    document.body.classList.add('has-video');
+    resetView();
+    video.play().catch(() => {});
+  });
+
+  video.addEventListener('loadedmetadata', () => {
+    $('dur').textContent = fmt(video.duration);
+    const saved = parseFloat(store.get(currentKey));
+    if (saved > 5 && saved < video.duration - 10) { video.currentTime = saved; toast('Fortgesetzt bei ' + fmt(saved)); }
+  });
+  video.addEventListener('loadeddata', () => { frameReady = true; needsDraw = true; });
+  video.addEventListener('seeked', () => { needsDraw = true; });
+  video.addEventListener('play', () => { $('play').textContent = '❚❚'; scheduleHide(); });
+  video.addEventListener('pause', () => { $('play').textContent = '▶'; document.body.classList.remove('hide-ui'); clearTimeout(hideTimer); needsDraw = true; });
+  let lastSave = 0;
+  video.addEventListener('timeupdate', () => {
+    $('cur').textContent = fmt(video.currentTime);
+    if (!seeking && video.duration) $('seek').value = Math.round(video.currentTime / video.duration * 1000);
+    const now = Date.now();
+    if (currentKey && now - lastSave > 5000) { store.set(currentKey, video.currentTime); lastSave = now; }
+  });
+  video.addEventListener('error', () => alert('Video konnte nicht abgespielt werden (Format/Codec?).'));
+
+  $('play').addEventListener('click', () => { if (!video.src) return fileInput.click(); video.paused ? video.play() : video.pause(); });
+  const SKIP = 15;
+  $('back').addEventListener('click', () => { video.currentTime = Math.max(0, video.currentTime - SKIP); toast('−' + SKIP + ' s'); });
+  $('fwd').addEventListener('click', () => { video.currentTime = Math.min(video.duration || 0, video.currentTime + SKIP); toast('+' + SKIP + ' s'); });
+  $('reset').addEventListener('click', () => { resetView(); needsDraw = true; });
+
+  const seek = $('seek');
+  seek.addEventListener('input', () => {
+    seeking = true;
+    if (video.duration) { const t = seek.value / 1000 * video.duration; $('cur').textContent = fmt(t); video.currentTime = t; }
+  });
+  seek.addEventListener('change', () => { seeking = false; });
+
+  $('proj').addEventListener('change', e => { proj = +e.target.value; store.set('sbs.proj', proj); resetView(); needsDraw = true; });
+  $('layout').addEventListener('change', e => { layout = +e.target.value; store.set('sbs.layout', layout); needsDraw = true; });
+
+  $('fs').addEventListener('click', async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        try { await screen.orientation.lock('landscape'); } catch (e) {}
+      } else {
+        try { screen.orientation.unlock(); } catch (e) {}
+        await document.exitFullscreen();
+      }
+    } catch (e) { toast('Vollbild nicht verfügbar'); }
+  });
+
+  // ---------- PWA: offline cache + install button ----------
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+  let installPrompt = null;
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault(); installPrompt = e; $('install').hidden = false;
+  });
+  $('install').addEventListener('click', async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch (e) {}
+    installPrompt = null; $('install').hidden = true;
+  });
+  window.addEventListener('appinstalled', () => { $('install').hidden = true; });
+
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space') { e.preventDefault(); $('play').click(); }
+    if (e.code === 'ArrowLeft') $('back').click();
+    if (e.code === 'ArrowRight') $('fwd').click();
+  });
+})();
+</script>
+</body>
+</html>
