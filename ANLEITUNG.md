@@ -1,35 +1,34 @@
 # SBS Player online stellen (GitHub Pages, kostenlos)
 
-Online geht nur der Inhalt des Ordners `web` – der Player selbst. Videos werden nie hochgeladen:
+Repository: <https://github.com/benegi-94/sbs-player>
+Player: <https://benegi-94.github.io/sbs-player/>
+
+Online geht nur der Player. Videos werden nie hochgeladen:
 Jeder wählt sie auf dem eigenen Handy aus, sie bleiben auf dem Gerät.
 
 ```
+index.html              leitet auf web/ weiter
+README.md               Beschreibung (Englisch)
+ANLEITUNG.md            diese Anleitung
 web/
-├── index.html              Player
-├── manifest.webmanifest    App-Name, Icons, Vollbild
-├── sw.js                   Offline-Cache
-└── icons/                  App-Icons
+├── index.html          Player
+├── manifest.webmanifest  App-Name, Icons, Vollbild
+├── sw.js               Offline-Cache
+└── icons/              App-Icons
+tools/make_icons.py     erzeugt die Icons neu
 ```
 
-## Einmalig einrichten
+## Einrichten
 
-1. Auf <https://github.com> ein kostenloses Konto anlegen und anmelden.
-2. Oben rechts **+ → New repository**.
-   - Name: z. B. `sbs-player` (wird Teil der Adresse)
-   - **Public** auswählen (GitHub Pages ist für kostenlose Konten nur bei öffentlichen Repos möglich)
-   - **Create repository**
-3. Auf der leeren Repo-Seite auf **uploading an existing file** klicken.
-4. Den **Inhalt** des Ordners `D:\SBS Player\web` in das Browserfenster ziehen
-   (`index.html`, `manifest.webmanifest`, `sw.js` und den Ordner `icons` – nicht den Ordner `web` selbst).
-5. Unten **Commit changes**.
-6. Im Repo **Settings → Pages**:
+1. Den **gesamten Inhalt** von `D:\SBS Player` ins Repo hochladen
+   (auf GitHub **Add file → Upload files**, Dateien und Ordner ins Fenster ziehen, **Commit changes**).
+   Vorhandene Dateien mit gleichem Namen werden dabei überschrieben.
+2. Im Repo **Settings → Pages**:
    - Source: **Deploy from a branch**
    - Branch: **main**, Ordner **/ (root)** → **Save**
-7. Nach 1–2 Minuten ist der Player erreichbar unter
-   `https://<dein-github-name>.github.io/sbs-player/`
-   (die genaue Adresse steht oben auf der Pages-Seite).
-
-Diesen Link kannst du weitergeben.
+3. Nach 1–2 Minuten ist der Player unter <https://benegi-94.github.io/sbs-player/> erreichbar.
+   Diesen Link kannst du weitergeben.
+4. Optional: Auf der Repo-Startseite bei **About** (Zahnrad) unter *Website* den Link eintragen.
 
 ## Auf dem Handy installieren
 
@@ -41,10 +40,10 @@ Danach startet der Player mit eigenem Icon, im Vollbild und funktioniert auch of
 
 ## Später etwas ändern
 
-1. Geänderte Dateien im Repo wieder per **Add file → Upload files** hochladen (überschreibt die alten).
-2. Wichtig: in `sw.js` die Zeile `const VERSION = 'sbs-player-v1';` hochzählen (`v2`, `v3`, …) und
-   `sw.js` mit hochladen – sonst behalten installierte Apps die alte Version im Cache.
-   Die neue Version kommt beim übernächsten Öffnen der App an.
+1. Geänderte Dateien wieder per **Add file → Upload files** in den passenden Ordner hochladen
+   (für Dateien aus `web/` vorher auf GitHub in den Ordner `web` wechseln).
+2. Wichtig: in `web/sw.js` die Zeile `const VERSION = 'sbs-player-v1';` hochzählen (`v2`, `v3`, …) und
+   `sw.js` mit hochladen – sonst behalten installierte Apps Icons und Manifest aus dem alten Cache.
 
 ## Icons neu erzeugen
 
